@@ -10,7 +10,7 @@
  */
 
 /* ⬇⬇⬇  PASTE YOUR GEMINI API KEY HERE  ⬇⬇⬇ */
-const GEMINI_API_KEY= "AIzaSyAC6RyMxHDQYqntTJcraeuXAsGY6MJYbjs"
+const GEMINI_API_KEY= "AQ.Ab8RN6JVcnwSoQORR3Qx5N4PdTFMNZaklmkUujxScXOrzvah_A"
 /* ⬆⬆⬆ ------------------------------------- */
 
 /* Tried in order — if one model isn't available for your key, the next is used. */
