@@ -252,7 +252,8 @@ function tiffinCard(entries) {
     </div>
     ${shown.map(foodRow).join("")}
     ${entries.length > shown.length ? `<p class="tiny muted" style="margin:10px 0 0">+ ${entries.length - shown.length} more item(s)</p>` : ""}
-    <div style="margin-top:16px">
+    <div style="margin-top:16px;display:grid;gap:8px">
+      <button class="btn btn--green btn--block" data-action="show-feedback">See my tiffin feedback</button>
       <button class="btn btn--primary" data-action="open-picker">+ Add Food Item</button>
     </div>
   </section>`;
@@ -387,7 +388,7 @@ function profileScreen() {
 
       <div style="margin-top:18px"><button class="btn btn--green btn--block" data-action="save-profile">Save for this session</button></div>
       <p class="tiny muted" style="margin:14px 0 0">
-        Indian School Sohar · Nothing is saved on this Device. Your name and foods stay on screen
+        Indian School Sohar · Nothing is saved on this laptop. Your name and foods stay on screen
         only until the next student starts. No weight, measurements or health information is collected.
       </p>
     </section>
@@ -425,11 +426,12 @@ function closeModal() {
 
 /* ---------- Food picker ---------- */
 
-const picker = { query: "", category: "All" };
+const picker = { query: "", category: "All", selected: new Map() };
 
 function openPicker() {
   picker.query = "";
   picker.category = "All";
+  picker.selected = new Map();
   openModal(`
     <div class="modal-head">
       <h2 class="modal-title" id="modal-title">Add Food Item</h2>
@@ -467,26 +469,120 @@ function renderPickerResults() {
         <h3 class="empty__title">No food found</h3>
         <p class="empty__text">Can't find your food? Describe it and our AI helper can estimate its nutrition.</p>
         <button class="btn btn--green" data-action="open-ai" data-q="${esc(picker.query)}">Ask AI to analyze it</button>
-      </div>`;
+      </div>
+      ${pickerBar()}`;
     return;
   }
 
   host.innerHTML = `
+    <p class="tiny muted" style="margin:2px 0 8px">Tap as many foods as you brought — set the portion right on the card, then add them all at once.</p>
     <div class="food-grid">
       ${results
-        .map(
-          (f) => `
-        <button class="food-card" data-action="pick-food" data-id="${esc(f.id)}" data-base="${esc(f.presetBase || "")}">
-          ${thumb(f)}
-          <span class="food-card__name">${esc(f.name)}${f.presetBase ? ` — ${esc((f.bases || []).find((b) => b.id === f.presetBase)?.label || "")}` : ""}</span>
-          <span class="food-card__meta">${esc(f.category)} · ${round(f.nutritionPerServing.calories)} kcal / ${esc(f.servingUnit)}</span>
-        </button>`,
-        )
+        .map((f) => {
+          const sel = picker.selected.get(f.id);
+          const on = !!sel;
+          return `
+        <div class="food-card ${on ? "is-selected" : ""}">
+          <button class="food-card__pick" data-action="toggle-food" data-id="${esc(f.id)}" data-base="${esc(f.presetBase || "")}"
+            aria-pressed="${on}">
+            <span class="food-card__tick" aria-hidden="true">${on ? "✓" : "+"}</span>
+            ${thumb(f)}
+            <span class="food-card__name">${esc(f.name)}</span>
+          </button>
+          ${on ? cardPortion(f, sel) : `<span class="food-card__meta">${esc(f.category)} · ${round(f.nutritionPerServing.calories)} kcal / ${esc(f.servingUnit)}</span>`}
+        </div>`;
+        })
         .join("")}
     </div>
-    <div style="margin-top:16px">
+    ${pickerBar()}`;
+}
+
+/** Inline portion editor shown inside a selected food card. */
+function cardPortion(f, sel) {
+  const base = (f.bases || []).find((b) => b.id === sel.baseId);
+  const preview = scaleNutrition(f.nutritionPerServing, sel.quantity, base?.multiplier || 1);
+  const useOptions = Array.isArray(f.amountOptions);
+  const unit = f.amountUnitLabel || f.servingUnit;
+
+  return `
+    <div class="card-portion">
+      ${
+        f.bases && f.bases.length > 1
+          ? `<div class="card-portion__row">
+               ${f.bases
+                 .map(
+                   (b) =>
+                     `<button class="mini-option ${b.id === sel.baseId ? "is-active" : ""}" data-action="card-base" data-id="${esc(f.id)}" data-base="${esc(b.id)}"
+                       aria-pressed="${b.id === sel.baseId}">${esc(b.label)}</button>`,
+                 )
+                 .join("")}
+             </div>`
+          : ""
+      }
+      ${
+        useOptions
+          ? `<div class="card-portion__row">
+               ${f.amountOptions
+                 .map(
+                   (v) =>
+                     `<button class="mini-option ${v === sel.quantity ? "is-active" : ""}" data-action="card-qty" data-id="${esc(f.id)}" data-qty="${v}"
+                       aria-pressed="${v === sel.quantity}">${esc(quantityLabel(v, unit))}</button>`,
+                 )
+                 .join("")}
+             </div>`
+          : `<div class="mini-stepper">
+               <button data-action="card-minus" data-id="${esc(f.id)}" aria-label="Less ${esc(f.name)}">−</button>
+               <output aria-live="polite">${esc(quantityLabel(sel.quantity, unit))}</output>
+               <button data-action="card-plus" data-id="${esc(f.id)}" aria-label="More ${esc(f.name)}">+</button>
+             </div>`
+      }
+      <span class="food-card__meta">${formatKcal(preview.calories)} kcal · P ${round(preview.protein, "protein")} g</span>
+    </div>`;
+}
+
+function pickerBar() {
+  const n = picker.selected.size;
+  return `
+    <div class="picker-bar">
+      <button class="btn btn--green btn--block" data-action="add-selected" ${n ? "" : "disabled"}>
+        ${n ? `Add ${n} item${n === 1 ? "" : "s"} to tiffin` : "Select foods to add"}
+      </button>
       <button class="btn btn--ghost btn--block" data-action="open-ai" data-q="${esc(picker.query)}">Can't find your food? Ask AI</button>
     </div>`;
+}
+
+
+function toggleFood(id, baseId) {
+  if (picker.selected.has(id)) picker.selected.delete(id);
+  else {
+    const food = getFood(id);
+    if (!food) return;
+    picker.selected.set(id, { food, baseId: baseId || food.bases?.[0]?.id || null, quantity: food.defaultServing ?? 1 });
+  }
+  renderPickerResults();
+}
+
+/** Patch one selected item in the picker and re-render. */
+function updateSelected(id, fn) {
+  const sel = picker.selected.get(id);
+  if (!sel) return;
+  picker.selected.set(id, fn(sel));
+  renderPickerResults();
+}
+
+function addSelected() {
+  if (!picker.selected.size) return;
+  const entries = todayEntries().slice();
+  const names = [];
+  for (const { food, quantity, baseId } of picker.selected.values()) {
+    entries.push(buildEntry(food, quantity, baseId));
+    names.push(food.name);
+  }
+  picker.selected = new Map();
+  closeModal();
+  setEntries(entries);
+  toast(`${names.length} item${names.length === 1 ? "" : "s"} added`);
+  showFeedback();
 }
 
 /* ---------- Portion picker ---------- */
@@ -578,6 +674,7 @@ function confirmPortion() {
   }
   closeModal();
   setEntries(entries);
+  showFeedback();
 }
 
 /* ---------- AI estimate ---------- */
@@ -727,6 +824,7 @@ function commitAiFood({ openEditor = false } = {}) {
   closeModal();
   setEntries(entries);
   toast(`${pendingAiFood.name} added to your tiffin`);
+  showFeedback();
 }
 
 /* ---------- View all / day detail ---------- */
@@ -759,6 +857,64 @@ function openRowMenu(button, entryId) {
   menu.querySelector("button").focus();
 }
 
+
+/* ---------- Tiffin feedback popup (SweetAlert2) ---------- */
+
+function showFeedback() {
+  const Swal = window.Swal;
+  const entries = todayEntries();
+  if (!Swal || !entries.length) return;
+
+  const totals = sumNutrition(entries);
+  const g = guide();
+  const a = analyseMeal(entries, g);
+  const pct = Math.round(Math.min(1, totals.calories / g.kcal[1]) * 100);
+
+  const tile = (label, value, unit, colorVar) =>
+    `<div class="fb-tile" style="background:var(${colorVar})"><b>${round(value, label.toLowerCase())}${unit}</b><span>${label}</span></div>`;
+
+  const html = `
+    <div class="fb-kcal">${formatKcal(totals.calories)} kcal</div>
+    <p class="tiny muted" style="margin:2px 0 0">${pct}% of a typical ${esc(g.label)} break tiffin (${g.kcal[0]}–${g.kcal[1]} kcal)</p>
+    <div class="fb-grid">
+      ${tile("Carbs", totals.carbs, "g", "--carbs")}
+      ${tile("Protein", totals.protein, "g", "--protein")}
+      ${tile("Fat", totals.fat, "g", "--fat")}
+      ${tile("Fibre", totals.fibre, "g", "--fibre")}
+    </div>
+    <p class="tiny muted" style="margin:0">Sugar ${round(totals.sugar, "sugar")} g · Sodium ${round(totals.sodium, "sodium")} mg · Calcium ${round(totals.calcium, "calcium")} mg · Iron ${round(totals.iron, "iron")} mg</p>
+    <div class="fb-section">In your tiffin box</div>
+    <ul class="fb-list">
+      ${entries.map((e) => `<li>${esc(quantityLabel(e.quantity, e.servingUnit))} ${esc(e.name)} — ${formatKcal(e.nutrition.calories)} kcal</li>`).join("")}
+    </ul>
+    <div class="fb-section">Balance · ${esc(varietyLabel(a.varietyScore))} (${a.varietyScore}/5 food groups)</div>
+    <p class="tiny" style="margin:4px 0 0">${esc(a.message)}</p>
+    ${
+      a.suggestions.length
+        ? `<div class="fb-section">To make it more balanced, try adding</div>
+           <ul class="fb-list">${a.suggestions.map((sug) => `<li>${esc(sug)}</li>`).join("")}</ul>`
+        : `<p class="tiny" style="margin:8px 0 0">Nice work — this tiffin already covers a good mix of food groups.</p>`
+    }
+    <p class="tiny muted" style="margin:12px 0 0">Estimates for nutrition education only.</p>`;
+
+  Swal.fire({
+    title: a.headline,
+    html,
+    width: 560,
+    showCancelButton: true,
+    confirmButtonText: "Add more food",
+    cancelButtonText: "Done",
+    buttonsStyling: true,
+    customClass: {
+      popup: "tiffin-swal",
+      confirmButton: "tiffin-swal-confirm",
+      cancelButton: "tiffin-swal-cancel",
+    },
+  }).then((r) => {
+    if (r.isConfirmed) openPicker();
+  });
+}
+
 /* ============================================================
    5. EVENTS + BOOTSTRAP
    ============================================================ */
@@ -787,6 +943,28 @@ document.addEventListener("click", (event) => {
       document.querySelectorAll(".cat").forEach((c) => c.classList.toggle("is-active", c.dataset.cat === cat));
       return renderPickerResults();
     }
+
+    case "toggle-food":
+      return toggleFood(id, base || null);
+
+    case "add-selected":
+      return addSelected();
+
+    case "card-base":
+      return updateSelected(id, (s) => ({ ...s, baseId: base }));
+
+    case "card-qty":
+      return updateSelected(id, (s) => ({ ...s, quantity: Number(qty) }));
+
+    case "card-plus":
+      return updateSelected(id, (s) => ({ ...s, quantity: Math.min(20, s.quantity + 1) }));
+
+    case "card-minus":
+      return updateSelected(id, (s) => ({ ...s, quantity: Math.max(1, s.quantity - 1) }));
+
+
+    case "show-feedback":
+      return showFeedback();
 
     case "pick-food": {
       const food = getFood(id);
